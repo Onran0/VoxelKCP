@@ -1,4 +1,4 @@
-# ![kcp2vc](icon.png) kcp2vc
+# ![kcp2vc](icon256.png) kcp2vc
 
 Fast pure-Lua KCP implementation for [Voxel Core](https://github.com/MihailRis/voxelcore)
 
