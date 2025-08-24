@@ -1,0 +1,1 @@
+on_world_tick = require "kcp".__tick
