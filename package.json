@@ -1,7 +1,7 @@
 {
 	"id": "kcp2vc",
 	"title": "Kcp2Vc",
-	"version": "0.0.0",
+	"version": "1.0.0",
 	"creator": "Onran",
 	"description": "Fast pure-Lua KCP implementation for Voxel Core"
 }
