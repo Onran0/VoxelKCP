@@ -15,7 +15,7 @@ local kcpServer = kcp.open(
     function(socket)
         print(utf8.tostring(socket:recv(bufferSize)))
 
-        socket:write("Hello!")
+        socket:send("Hello!")
     end
 )
 
@@ -26,7 +26,6 @@ local kcpClient = kcp.connect(
 )
 
 kcpClient:send("Hi!")
-print(utf8.tostring(kcpClient:recv(bufferSize)))
 ```
 # Documentation
 [RU](doc/ru/kcp.md)
