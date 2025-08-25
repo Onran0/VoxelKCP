@@ -247,10 +247,12 @@ local function ikcp_encode8u(data, value)
 end
 
 -- decode 8 bits unsigned int
-local function ikcp_decode8u(data)
-	local res = data[1]
+local function ikcp_decode8u(data, offset)
+	offset = offset or 0
 
-    data.remove(data, 1)
+	local res = data[offset + 1]
+
+    data.remove(data, offset + 1)
 
     return res
 end
@@ -262,9 +264,11 @@ end
 
 -- decode 16 bits unsigned int (lsb)
 local function ikcp_decode16u(data)
-    local res = UNPACK(16, { data[1], data[2] })
+	offset = offset or 0
 
-    data.remove(data, 1, 2)
+    local res = UNPACK(16, { data[offset + 1], data[offset + 2] })
+
+    data.remove(data, offset + 1, 2)
 
     return res
 end
@@ -276,9 +280,11 @@ end
 
 -- decode 32 bits unsigned int (lsb)
 local function ikcp_decode32u(data)
-    local res = UNPACK(32, { data[1], data[2], data[3], data[4] })
+	offset = offset or 0
 
-    data.remove(data, 1, 4)
+    local res = UNPACK(32, { data[offset + 1], data[offset + 2], data[offset + 3], data[offset + 4] })
+
+    data.remove(data, offset + 1, 4)
 
     return res
 end
@@ -300,7 +306,7 @@ local function set_u32(data, offset, value)
 end
 
 local function ikcp_segment_new(kcp, size)
-    local seg = { frg = 0, data = ikcp_malloc(size), node = { } }
+    local seg = { data = ikcp_malloc(size), node = { } }
 
     seg.node.value = seg
 
@@ -312,14 +318,14 @@ local function ikcp_segment_delete(kcp, seg)
 end
 
 local function ikcp_encode_seg(data, seg)
-	ikcp_encode32u(ptr, seg.conv)
-	ikcp_encode8u(ptr, bit.band(0xFF, seg.cmd))
-	ikcp_encode8u(ptr, bit.band(0xFF, seg.frg))
-	ikcp_encode16u(ptr, bit.band(0xFFFF, seg.wnd))
-	ikcp_encode32u(ptr, seg.ts)
-	ikcp_encode32u(ptr, seg.sn)
-	ikcp_encode32u(ptr, seg.una)
-	ikcp_encode32u(ptr, seg.len)
+	ikcp_encode32u(data, seg.conv)
+	ikcp_encode8u(data, bit.band(0xFF, seg.cmd))
+	ikcp_encode8u(data, bit.band(0xFF, seg.frg))
+	ikcp_encode16u(data, bit.band(0xFFFF, seg.wnd))
+	ikcp_encode32u(data, seg.ts)
+	ikcp_encode32u(data, seg.sn)
+	ikcp_encode32u(data, seg.una)
+	ikcp_encode32u(data, seg.len)
 end
 
 local function ikcp_canlog(kcp, mask)
@@ -349,7 +355,7 @@ local function ikcp_ack_push(kcp, sn, ts)
 		local acklist
 		local newblock = 8
 
-		repeat newblock = bit.lshift(newblock, 1) until newblock >= newsize
+		while newblock < newsize do newblock = bit.lshift(newblock, 1) end
 
 		acklist = ikcp_malloc(newblock * 4 * 2)
 
@@ -392,7 +398,7 @@ local function ikcp_parse_ack(kcp, sn)
 
 	p = kcp.snd_buf.next
 
-	repeat
+	while p ~= kcp.snd_buf do
 		local seg = p.value
 
 		next = p.next
@@ -406,7 +412,7 @@ local function ikcp_parse_ack(kcp, sn)
 		if _itimediff(sn, seg.sn) < 0 then break end
 
 		p = next
-	until p == kcp.snd_buf
+	end
 end
 
 local function ikcp_update_ack(kcp, rtt)
@@ -429,7 +435,7 @@ local function ikcp_parse_una(kcp, una)
 	local p, next
 
 	p = kcp.snd_buf.next
-	repeat
+	while p ~= kcp.snd_buf do
 		local seg = p.value
 		next = p.next
 		if _itimediff(una, seg.sn) > 0 then
@@ -439,7 +445,7 @@ local function ikcp_parse_una(kcp, una)
 		else break end
 
 		p = next
-	until p == kcp.snd_buf
+	end
 end
 
 local function ikcp_parse_fastack(kcp, sn, ts)
@@ -449,7 +455,7 @@ local function ikcp_parse_fastack(kcp, sn, ts)
 
 	p = kcp.snd_buf.next
 
-	repeat
+	while p ~= kcp.snd_buf do
 		local seg = p.value
 		next = p.next
 		if _itimediff(sn, seg.sn) < 0 then
@@ -465,7 +471,7 @@ local function ikcp_parse_fastack(kcp, sn, ts)
 		end
 
 		p = next
-	until p == kcp.snd_buf
+	end
 end
 
 local function ikcp_wnd_unused(kcp)
@@ -663,7 +669,7 @@ local function ikcp_send(kcp, buffer, len)
         end
 
 		seg.len = size
-		seg.frg = (kcp.stream == 0) and (count - i - 1) or 0
+		seg.frg = (kcp.stream == NULL) and (count - i) or 0
 
 		iqueue_init(seg.node)
 		iqueue_add_tail(seg.node, kcp.snd_queue)
@@ -706,25 +712,25 @@ local function ikcp_peeksize(kcp)
 	seg = kcp.rcv_queue.next.value
 
 	if seg.frg == 0 then return #seg.data end
-
+	
 	if kcp.nrcv_que < seg.frg + 1 then return -1 end
 
     p = kcp.rcv_queue.next
 
-    repeat
+    while p ~= kcp.rcv_queue do
 		seg = p.value
 		length = length + #seg.data
 
 		if seg.frg == 0 then break end
 
         p = p.next
-    until p ~= kcp.rcv_queue
+	end
 
-	return length;
+	return length
 end
 
 local function ikcp_recv(kcp, buffer, len)
-    local len = len or #buffer
+    local len = len or (buffer and #buffer) or 0
 
 	local p
 	local ispeek = len < 0 and 1 or 0
@@ -754,10 +760,10 @@ local function ikcp_recv(kcp, buffer, len)
 
     p = kcp.rcv_queue.next
 
-    repeat
+    while p ~= kcp.rcv_queue do
         local fragment
 
-		seg = node.value
+		seg = p.value
 		p = p.next
 
 		if buffer then
@@ -782,7 +788,7 @@ local function ikcp_recv(kcp, buffer, len)
         end
 
 		if fragment == 0 then break end
-    until p == kcp.rcv_queue
+    end
 
 	assert(len == peeksize);
 
@@ -809,6 +815,60 @@ local function ikcp_recv(kcp, buffer, len)
 	return len;
 end
 
+-----------------------------------------------------------------------
+-- parse data
+-----------------------------------------------------------------------
+local function ikcp_parse_data(kcp, newseg)
+	local p, prev
+	local sn = newseg.sn
+	local _repeat = 0
+	
+	if _itimediff(sn, kcp.rcv_nxt + kcp.rcv_wnd) >= 0 or
+		_itimediff(sn, kcp.rcv_nxt) < 0 then
+		ikcp_segment_delete(kcp, newseg)
+		return
+	end
+
+	p = kcp.rcv_buf.prev
+
+	while p ~= kcp.rcv_buf do
+		local seg = p.value
+
+		prev = p.prev
+
+		if seg.sn == sn then
+			_repeat = 1
+			break
+		end
+		if _itimediff(sn, seg.sn) > 0 then
+			break
+		end
+
+		p = prev
+	end
+
+	if _repeat == 0 then
+		iqueue_init(newseg.node)
+		iqueue_add(newseg.node, p)
+		kcp.nrcv_buf = kcp.nrcv_buf + 1
+	else
+		ikcp_segment_delete(kcp, newseg)
+	end
+
+	-- move available data from rcv_buf -> rcv_queue
+	while not iqueue_is_empty(kcp.rcv_buf) do
+		local seg = kcp.rcv_buf.next.value
+
+		if seg.sn == kcp.rcv_nxt and kcp.nrcv_que < kcp.rcv_wnd then
+			iqueue_del(seg.node)
+			kcp.nrcv_buf = kcp.nrcv_buf - 1
+			iqueue_add_tail(seg.node, kcp.rcv_queue)
+			kcp.nrcv_que = kcp.nrcv_que + 1
+			kcp.rcv_nxt = kcp.rcv_nxt + 1
+		else break end
+	end
+end
+
 local function ikcp_input(kcp, data, len)
     local size = len or #data
 
@@ -822,6 +882,8 @@ local function ikcp_input(kcp, data, len)
 
 	if data == NULL or size < IKCP_OVERHEAD then return -1 end
 
+	local dataOffset = 0
+
 	while true do
 		local ts, sn, len, una, conv
 		local wnd
@@ -830,17 +892,17 @@ local function ikcp_input(kcp, data, len)
 
 		if size < IKCP_OVERHEAD then break end
 
-		conv = ikcp_decode32u(data)
+		conv = ikcp_decode32u(data, dataOffset)
 
 		if conv ~= kcp.conv then return -1 end
 
-		cmd = ikcp_decode8u(data)
-		frg = ikcp_decode8u(data)
-		wnd = ikcp_decode16u(data)
-		ts = ikcp_decode32u(data)
-		sn = ikcp_decode32u(data)
-		una = ikcp_decode32u(data)
-		len = ikcp_decode32u(data)
+		cmd = ikcp_decode8u(data, dataOffset)
+		frg = ikcp_decode8u(data, dataOffset)
+		wnd = ikcp_decode16u(data, dataOffset)
+		ts = ikcp_decode32u(data, dataOffset)
+		sn = ikcp_decode32u(data, dataOffset)
+		una = ikcp_decode32u(data, dataOffset)
+		len = ikcp_decode32u(data, dataOffset)
 
 		size = size - IKCP_OVERHEAD
 
@@ -910,7 +972,9 @@ local function ikcp_input(kcp, data, len)
 					seg.len = len;
 
 					if len > 0 then
-                        seg.data.insert(seg.data, 1, data)
+						for i = 1, len do
+							seg.data[i] = data[i + dataOffset]
+						end
                     end
 
 					ikcp_parse_data(kcp, seg)
@@ -934,7 +998,7 @@ local function ikcp_input(kcp, data, len)
             end
 		else return -3 end
 
-		data = data + len
+		dataOffset = dataOffset + len
 		size = size - len
 	end
 
@@ -1023,7 +1087,7 @@ local function ikcp_check(kcp, current)
 
     p = kcp.snd_buf.next
 
-    repeat
+    while p ~= kcp.snd_buf do
 		local seg = p.value
 		local diff = _itimediff(seg.resendts, current)
 
@@ -1032,7 +1096,7 @@ local function ikcp_check(kcp, current)
 		if diff < tm_packet then tm_packet = diff end
 
         p = p.next
-    until p == kcp.snd_buf
+	end
 
 	minimal = bit.band(0xFFFFFFFF, (tm_packet < tm_flush) and tm_packet or tm_flush)
 
@@ -1044,7 +1108,8 @@ end
 local function ikcp_flush(kcp)
 	local current = kcp.current
 	local buffer = kcp.buffer
-	local ptr = buffer
+
+	buffer.clear(buffer)
 
 	local count, size
 	local resent, cwnd
@@ -1083,11 +1148,11 @@ local function ikcp_flush(kcp)
 
 		seg.sn, seg.ts = ikcp_ack_get(kcp, i - 1, seg.sn, seg.ts)
 
+		tmpSegBuffer.clear(tmpSegBuffer)
+
 		ikcp_encode_seg(tmpSegBuffer, seg)
 
-        buffer.insert(buffer, offset, tmpSegBuffer)
-
-        tmpSegBuffer.clear(tmpSegBuffer)
+        buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
         offset = offset + 24
 	end
@@ -1126,11 +1191,11 @@ local function ikcp_flush(kcp)
 			offset = 0
         end
 
+		tmpSegBuffer.clear(tmpSegBuffer)
+
 		ikcp_encode_seg(tmpSegBuffer, seg)
 
-        buffer.insert(buffer, offset, tmpSegBuffer)
-
-        tmpSegBuffer.clear(tmpSegBuffer)
+        buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
         offset = offset + 24
 	end
@@ -1144,11 +1209,11 @@ local function ikcp_flush(kcp)
 			offset = 0
         end
 
+		tmpSegBuffer.clear(tmpSegBuffer)
+
 		ikcp_encode_seg(tmpSegBuffer, seg)
 
-        buffer.insert(buffer, offset, tmpSegBuffer)
-
-        tmpSegBuffer.clear(tmpSegBuffer)
+        buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
         offset = offset + 24
 	end
@@ -1165,7 +1230,7 @@ local function ikcp_flush(kcp)
 
 		if iqueue_is_empty(kcp.snd_queue) then break end
 
-		newseg = kcp.ssnd_queue.next.value
+		newseg = kcp.snd_queue.next.value
 
 		iqueue_del(newseg.node)
 		iqueue_add_tail(newseg.node, kcp.snd_buf)
@@ -1192,7 +1257,7 @@ local function ikcp_flush(kcp)
 	-- flush data segments
 	p = kcp.snd_buf.next
 
-	repeat
+	while p ~= kcp.snd_buf do
 		local segment = p.value
 		local needsend = 0
 
@@ -1239,11 +1304,11 @@ local function ikcp_flush(kcp)
 				offset = 0
 			end
 
+			tmpSegBuffer.clear(tmpSegBuffer)
+
 			ikcp_encode_seg(tmpSegBuffer, segment)
 
-			buffer.insert(buffer, offset, tmpSegBuffer)
-
-			tmpSegBuffer.clear(tmpSegBuffer)
+			buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
 			offset = offset + 24
 
@@ -1261,7 +1326,7 @@ local function ikcp_flush(kcp)
 		end
 
 		p = p.next
-	until p == kcp.snd_buf
+	end
 
 	-- flash remain segments
 	size = offset

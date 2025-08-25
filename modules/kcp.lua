@@ -1,3 +1,27 @@
+--[[
+MIT License
+
+Copyright (c) 2025 Onran
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+--]]
+
 local env = getfenv(1)
 
 local ikcp = require "ikcp"
@@ -24,14 +48,20 @@ luaikcp_pack(
     end
 )
 
-local kcp = { }
+local nextId = 1
 
-local nextConv = 0
+local kcp = { }
 
 local instances = { }
 
+local function newConv()
+    return math.random(0, 0xFFFFFFFF)
+end
+
 local KcpSocket = {__index={
     send=function(self, data)
+        if not instances[self.id] then return end
+
         local type = type(data)
 
         if type == "string" then
@@ -47,40 +77,44 @@ local KcpSocket = {__index={
         end
     end,
     recv=function(self, len, useTable)
-        if not instances[self.conv] then return end
+        if not instances[self.id] then return end
 
         local peeksize = ikcp_peeksize(self.inst)
 
         if len > peeksize then len = peeksize end
 
-        local buffer = not useTable and Bytearray(len) or { }
+        if len > 0 then
+            local buffer = not useTable and Bytearray(len) or { }
 
-        ikcp_recv(self.inst, buffer, len)
+            ikcp_recv(self.inst, buffer, len)
 
-        return buffer
+            return buffer
+        else return Bytearray() end
     end,
     available=function(self, len, useTable)
-        if not instances[self.conv] then return -1 end
+        if not instances[self.id] then return -1 end
 
-        return ikcp_peeksize(self.inst)
+        return math.max(0, ikcp_peeksize(self.inst))
     end,
     close=function(self)
         ikcp_release(self.inst)
-        instances[self.conv] = nil
+        instances[self.id] = nil
         self.socket:close()
     end,
-    is_open=function(self) return instances[self.conv] ~= nil end,
+    is_open=function(self) return instances[self.id] ~= nil end,
     get_address=function(self) return self.socket:get_address() end,
 }}
 
-local KcpClientSocket = {__index=KcpSocket,__newindex={
+local KcpClientSocket = { __index = {
     close=function(self)
         ikcp_release(self.inst)
-        instances[self.conv] = nil
+        instances[self.id] = nil
         self.sockets[self.address..':'..self.port]=nil
     end,
     get_address=function(self) return self.address, self.port end
 }}
+
+setmetatable(KcpClientSocket.__index, { __index = KcpSocket.__index })
 
 local KcpServerSocket = {__index={
     close=function(self)
@@ -97,7 +131,11 @@ local KcpServerSocket = {__index={
 }}
 
 function kcp.connect(address, port)
-    local inst = ikcp_create(nextConv)
+    local id = nextId
+
+    nextId = nextId + 1
+
+    local inst = ikcp_create(newConv())
 
     local socket
 
@@ -130,15 +168,13 @@ function kcp.connect(address, port)
                 end
             end
 
-            socket:write(subdata)
+            socket:send(subdata)
         end
     )
 
-    instances[nextConv] = inst
+    instances[id] = inst
 
-    local kcpSocket = setmetatable({inst=inst, conv=nextConv, socket=socket}, KcpSocket)
-
-    nextConv = nextConv + 1
+    local kcpSocket = setmetatable({inst=inst, id=id, socket=socket}, KcpSocket)
 
     return kcpSocket
 end
@@ -149,10 +185,11 @@ function kcp.open(port, handler)
     network.udp_open(
         port,
         function(address, port, data, server)
-            address = address..':'..port
+            local fullAddress = address..':'..port
+            local handlerCallback
 
-            if not sockets[address] then
-                local inst = ikcp_create(nextConv)
+            if not sockets[fullAddress] then
+                local inst = ikcp_create(ikcp_getconv(data))
 
                 ikcp_setoutput(
                     inst,
@@ -172,15 +209,23 @@ function kcp.open(port, handler)
                     end
                 )
 
-                instances[nextConv] = inst
+                local id = nextId
 
-                local kcpSocket = setmetatable({inst=inst, conv=nextConv, address=address, port=port, sockets=sockets}, KcpClientSocket)
+                nextId = nextId + 1
 
-                nextConv = nextConv + 1
+                instances[id] = inst
 
-                handler(kcpSocket)
-            else
-                ikcp_input(sockets[address].inst, data)
+                local kcpSocket = setmetatable({inst=inst, id=id, address=address, port=port, sockets=sockets}, KcpClientSocket)
+
+                sockets[fullAddress] = kcpSocket
+
+                handlerCallback = true
+            end
+
+            ikcp_input(sockets[fullAddress].inst, data)
+
+            if handlerCallback then
+                handler(sockets[fullAddress])
             end
         end
     )
@@ -189,6 +234,7 @@ end
 function kcp.__tick()
     for _, instance in pairs(instances) do
         ikcp_update(instance, uptimeMs())
+        ikcp_recv(instance)
     end
 end
 
