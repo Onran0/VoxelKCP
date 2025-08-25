@@ -73,7 +73,7 @@ local KcpSocket = {__index={
     get_address=function(self) return self.socket:get_address() end,
 }}
 
-local KcpClientSocket = {__index=KcpSocket,__new_index={
+local KcpClientSocket = {__index=KcpSocket,__newindex={
     close=function(self)
         ikcp_release(self.inst)
         instances[self.conv] = nil
