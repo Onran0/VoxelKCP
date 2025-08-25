@@ -174,9 +174,7 @@ function kcp.connect(address, port)
 
     instances[id] = inst
 
-    local kcpSocket = setmetatable({inst=inst, id=id, socket=socket}, KcpSocket)
-
-    return kcpSocket
+    return setmetatable({inst=inst, id=id, socket=socket}, KcpSocket)
 end
 
 function kcp.open(port, handler)
@@ -234,7 +232,6 @@ end
 function kcp.__tick()
     for _, instance in pairs(instances) do
         ikcp_update(instance, uptimeMs())
-        ikcp_recv(instance)
     end
 end
 
