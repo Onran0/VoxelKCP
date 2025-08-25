@@ -29,7 +29,7 @@ kcpClient:send("Hi!")
 print(utf8.tostring(kcpClient:recv(bufferSize)))
 ```
 # Documentation
-[RU](docs/ru/dev.md)
+[RU](doc/ru/kcp.md)
 
 # Links
 Original [**kcp**](https://github.com/skywind3000/kcp) repository
