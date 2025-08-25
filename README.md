@@ -5,7 +5,7 @@ Fast pure-Lua KCP implementation for [Voxel Core](https://github.com/MihailRis/v
 Examples of usage:
 
 ```lua
-local kcp = require "kcp:kcp"
+local kcp = require "kcp2vc:kcp"
 
 local bufferSize = 1024
 
