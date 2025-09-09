@@ -101,6 +101,45 @@ local KcpSocket = {__index={
         instances[self.id] = nil
         self.socket:close()
     end,
+    set_mtu=function(self, mtu)
+        ikcp_setmtu(self.inst, mtu)
+    end,
+    set_window_size=function(self, send, recv)
+        ikcp_wndsize(self.inst, send, recv)
+    end,
+    get_mtu=function(self)
+        return self.inst.mtu
+    end,
+    get_window_size=function(self)
+        return self.inst.snd_wnd, self.inst.rcv_wnd
+    end,
+    unconfirmed_segments=function(self)
+        return ikcp_waitsnd(self.inst)
+    end,
+    set_nodelay=function(self, nodelay)
+        ikcp_nodelay(self.inst, nodelay and 1 or 0, self.inst.interval, self.inst.fastresend, self.inst.nocwnd)
+    end,
+    set_interval=function(self, interval)
+        ikcp_nodelay(self.inst, self.inst.nodelay, interval, self.inst.fastresend, self.inst.nocwnd)
+    end,
+    set_resend=function(self, resend)
+        ikcp_nodelay(self.inst, self.inst.nodelay, self.inst.interval, resend or 0, self.inst.nocwnd)
+    end,
+    set_congestion_control=function(self, nocwnd)
+        ikcp_nodelay(self.inst, self.inst.nodelay, self.inst.interval, self.inst.fastresend, nocwnd and 0 or 1)
+    end,
+    get_nodelay=function(self)
+        return self.inst.nodelay == 1
+    end,
+    get_interval=function(self)
+        return self.inst.interval
+    end,
+    get_resend=function(self)
+        return self.inst.fastresend
+    end,
+    is_congestion_control_enabled=function(self)
+        return self.inst.nocwnd == 0
+    end,
     is_open=function(self) return instances[self.id] ~= nil end,
     get_address=function(self) return self.socket:get_address() end,
 }}
@@ -174,7 +213,11 @@ function kcp.connect(address, port)
 
     instances[id] = inst
 
-    return setmetatable({inst=inst, id=id, socket=socket}, KcpSocket)
+    local socket = setmetatable({inst=inst, id=id, socket=socket}, KcpSocket)
+
+    socket:set_interval(kcp.interval)
+
+    return socket
 end
 
 function kcp.open(port, handler)
@@ -215,6 +258,8 @@ function kcp.open(port, handler)
 
                 local kcpSocket = setmetatable({inst=inst, id=id, address=address, port=port, sockets=sockets}, KcpClientSocket)
 
+                kcpSocket:set_interval(kcp.interval)
+
                 sockets[fullAddress] = kcpSocket
 
                 handlerCallback = true
@@ -231,10 +276,24 @@ function kcp.open(port, handler)
     return setmetatable({socket=socket, sockets=sockets}, KcpServerSocket)
 end
 
-function kcp.__tick()
+function kcp.update()
     for _, instance in pairs(instances) do
         ikcp_update(instance, uptimeMs())
     end
 end
+
+function kcp.set_auto_update(autoupdate)
+    kcp.autoupdate = autoupdate or false
+end
+
+function kcp.set_interval(interval)
+    kcp.interval = interval or 50
+end
+
+kcp.__tick = kcp.update
+
+kcp.autoupdate = true
+
+kcp.interval = 50
 
 return kcp
