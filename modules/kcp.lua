@@ -180,7 +180,7 @@ end
 function kcp.open(port, handler)
     local sockets = { }
 
-    network.udp_open(
+    local socket = network.udp_open(
         port,
         function(address, port, data, server)
             local fullAddress = address..':'..port
@@ -227,6 +227,8 @@ function kcp.open(port, handler)
             end
         end
     )
+
+    return setmetatable({socket=socket, sockets=sockets}, KcpServerSocket)
 end
 
 function kcp.__tick()
