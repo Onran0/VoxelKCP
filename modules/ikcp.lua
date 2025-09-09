@@ -1136,7 +1136,7 @@ local function ikcp_flush(kcp)
 	-- flush acknowledges
 	count = kcp.ackcount
 
-    local tmpSegBuffer = ikcp_malloc(24)
+    local tmpSegBuffer = ikcp_malloc(IKCP_OVERHEAD)
 
 	for i = 1, count do
 		size = offset
@@ -1154,7 +1154,7 @@ local function ikcp_flush(kcp)
 
         buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
-        offset = offset + 24
+        offset = offset + IKCP_OVERHEAD
 	end
 
 	kcp.ackcount = 0
@@ -1197,7 +1197,7 @@ local function ikcp_flush(kcp)
 
         buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
-        offset = offset + 24
+        offset = offset + IKCP_OVERHEAD
 	end
 
 	-- flush window probing commands
@@ -1215,7 +1215,7 @@ local function ikcp_flush(kcp)
 
         buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
-        offset = offset + 24
+        offset = offset + IKCP_OVERHEAD
 	end
 
 	kcp.probe = 0
@@ -1251,8 +1251,8 @@ local function ikcp_flush(kcp)
 	end
 
 	-- calculate resent
-	resent = (kcp.fastresend > 0) and kcp.fastresend or 0xffffffff
-	rtomin = (kcp.nodelay == 0) and bit.rshift(kcp.rx_rto, 3) or 0
+	resent = kcp.fastresend > 0 and kcp.fastresend or 0xffffffff
+	rtomin = kcp.nodelay == 0 and bit.rshift(kcp.rx_rto, 3) or 0
 
 	-- flush data segments
 	p = kcp.snd_buf.next
@@ -1310,7 +1310,7 @@ local function ikcp_flush(kcp)
 
 			buffer.insert(buffer, offset + 1, tmpSegBuffer)
 
-			offset = offset + 24
+			offset = offset + IKCP_OVERHEAD
 
 			if segment.len > 0 then
 				for i = 1, segment.len do
